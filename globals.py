@@ -26,4 +26,4 @@ TEST = ("datasets/TONIOT/X_test.csv", "datasets/TONIOT/y_test.csv")
 # PARAMS
 BATCH_SIZE = 32
 ROUNDS = 10
-EPOCHS = 10
+EPOCHS = 20
