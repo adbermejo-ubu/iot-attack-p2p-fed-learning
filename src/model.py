@@ -1,127 +1,75 @@
 import numpy as np
-from keras import layers, regularizers, Model, optimizers, metrics, initializers
+import keras
 
-SEED = 42
+class P2PModel(keras.Model):
+    """Model wrapper for P2P federated learning."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__shapes = [w.shape for w in self.get_weights()]
+        self.__sizes = [w.size for w in self.get_weights()]
+        self.__params = sum(self.__sizes)
 
+    def flat(self):
+        """Reshape the model weights into a one-dimensional array."""
+        return np.concatenate([np.array(w.numpy(), dtype=np.float32).ravel() for w in self.weights], dtype=np.float32).astype(np.float32)
 
-# Load the model
-def load_model(dim: int, name: str = "mlp"):
-    init = initializers.GlorotUniform(seed=SEED)
-    bias_init = initializers.Zeros()
+    def reconstruct(self, flat_model: list):
+        """Reshape one-dimensional array into the model architecture."""
+        flat_model = np.asarray(flat_model, dtype=np.float32)
+        weights = []
+        pointer = 0
 
-    # Input layer
-    inputs = layers.Input(shape=(dim,), name="input_layer")
-    # Hidden layer 1
-    x = layers.Dense(
-        512,
-        activation="relu",
-        kernel_initializer=init,
-        bias_initializer=bias_init,
-        kernel_regularizer=regularizers.l2(0.001),
-    )(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.Dropout(0.4)(x)
-    # Hidden layer 2
-    x = layers.Dense(
-        256,
-        activation="relu",
-        kernel_initializer=init,
-        bias_initializer=bias_init,
-        kernel_regularizer=regularizers.l2(0.001),
-    )(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Dropout(0.35)(x)
-    # Hidden layer 3
-    x = layers.Dense(
-        128,
-        activation="relu",
-        kernel_initializer=init,
-        bias_initializer=bias_init,
-        kernel_regularizer=regularizers.l2(0.001),
-    )(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Dropout(0.3)(x)
-    # Hidden layer 4
-    x = layers.Dense(
-        64, activation="relu", kernel_initializer=init, bias_initializer=bias_init
-    )(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Dropout(0.25)(x)
-    # Output layer
-    outputs = layers.Dense(
-        1,
-        activation="sigmoid",
-        kernel_initializer=init,
-        bias_initializer=bias_init,
-        name="output_layer",
-    )(x)
-    model = Model(inputs=inputs, outputs=outputs, name=name)
+        if len(flat_model) !=  self.__params:
+            raise ValueError("The flat model does not have the same shape as the model")
 
-    model.compile(
-        optimizer=optimizers.Adam(learning_rate=0.0003),
-        loss="binary_crossentropy",
-        metrics=[
-            "accuracy",
-            metrics.Precision(name="precision"),
-            metrics.Recall(name="recall"),
-            metrics.AUC(name="auc"),
-        ],
-    )
-    return model
+        for shape, size in zip(self.__shapes, self.__sizes):
+            chunk = flat_model[pointer : pointer + size]
+            reshaped_chunk = chunk.reshape(shape)
 
+            weights.append(reshaped_chunk)
+            pointer += size
+        self.set_weights(weights)
 
-# Flat the model to a single one dimension array
-def flat_model(model: Model):
-    return np.concatenate(
-        [np.array(w.numpy(), dtype=np.float32).ravel() for w in model.weights],
-        dtype=np.float32,
-    ).astype(np.float32)
+    def segment(self, num: int = 1, exclusions: list[int] = []):
+        """Segment the model into the requested number of segments."""
+        segments = []
 
+        if not exclusions:
+            keys_per_segment = int(np.ceil(self.__params / num))
 
-# Reconstruct model
-def reshape_model(
-    flat_model: list,
-    shapes: list,
-    sizes: list,
-):
-    flat_model = np.asarray(flat_model, dtype=np.float32)
+            current = 0
+            while current + keys_per_segment <= self.__params:
+                segments.append((current, current + keys_per_segment))
+                current += keys_per_segment
 
-    if len(flat_model) != sum(sizes):
-        return
+            if current < self.__params:
+                segments.append((current, self.__params))
+            return segments
 
-    weights = []
-    pointer = 0
+        params = 0
+        total = 0
+        layers_range = []
+        for i, size in enumerate(self.__sizes):
+            if i not in exclusions:
+                layers_range.append((total, total + size))
+                params += size
+            total += size
 
-    for shape, size in zip(shapes, sizes):
-        chunk = flat_model[pointer : pointer + size]
-        reshaped_chunk = chunk.reshape(shape)
+        merged = []
+        for start, end in layers_range:
+            if not merged or merged[-1][1] != start:
+                merged.append([start, end])
+            else:
+                merged[-1][1] = end
 
-        weights.append(reshaped_chunk)
-        pointer += size
-    return weights
+        available_ranges = [tuple(r) for r in merged]
+        keys_per_segment = int(np.ceil(params / num))
 
-
-# Federated average
-def fed_avg(flat_models: list[tuple[int, list]]):
-    weights = np.zeros_like(flat_models[0][1], dtype=np.float32)
-    samples = 0
-
-    for n, w in flat_models:
-        w = np.asarray(w, dtype=np.float32)
-
-        weights += np.float32(n) * w
-        samples += int(n)
-    return (weights / np.float32(samples)).astype(np.float32)
-
-# Federated average similarity
-def fed_avg_sim(base_model: tuple[int, list], flat_models: list[tuple[int, list]], alpha: float = 0.5):
-    total = np.float32(base_model[0])
-    weights = total * np.copy(base_model[1])
-    
-    for n, w in flat_models:
-        sim = np.exp(-alpha * np.linalg.norm(w - base_model[1], ord=2)) # Similarity with the base model
-        cont = sim * np.float32(n)
-
-        weights += cont * np.asarray(w, dtype=np.float32)
-        total += cont
-    return (weights / total).astype(np.float32)
+        for r_start, r_end in available_ranges:
+            current = r_start
+            while current + keys_per_segment <= r_end:
+                segments.append((current, current + keys_per_segment))
+                current += keys_per_segment
+            if current < r_end:
+                segments.append((current, r_end))
+        return segments

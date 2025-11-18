@@ -1,28 +1,24 @@
-import os
 import pandas as pd
 import tensorflow as tf
 
-# Load all datasets
-def load_datasets(
-    train_path: tuple[str, str] | None,
-    val_path: tuple[str, str] | None,
-    test_path: tuple[str, str] | None,
-) -> tuple[
-    tuple[tf.Tensor, tf.Tensor] | None,
-    tuple[tf.Tensor, tf.Tensor] | None,
-    tuple[tf.Tensor, tf.Tensor] | None,
-]:
-    def load_split(path: tuple[str, str] | None):
-        try:
-            return (
-                tf.convert_to_tensor(
-                    pd.read_csv(os.path.abspath(path[0])).values, dtype=tf.float32
-                ),
-                tf.convert_to_tensor(
-                    pd.read_csv(os.path.abspath(path[1])).values, dtype=tf.int8
-                ),
-            )
-        except:
-            return None
+class Datasets:
+    def __init__(self, train: tuple[pd.DataFrame, pd.DataFrame] | None, val: tuple[pd.DataFrame, pd.DataFrame] | None, test: tuple[pd.DataFrame, pd.DataFrame] | None, dtype: tuple[tf.DType, tf.DType] | None = None):
+        self.train = None
+        self.val = None
+        self.test = None
 
-    return (load_split(train_path), load_split(val_path), load_split(test_path))
+        if train:
+            self.train =  (
+                tf.convert_to_tensor(train[0].values, dtype=dtype[0] if dtype else None),
+                tf.convert_to_tensor(train[1].values, dtype=dtype[1] if dtype else None)
+            )
+        if val:
+            self.val =  (
+                tf.convert_to_tensor(val[0].values, dtype=dtype[0] if dtype else None),
+                tf.convert_to_tensor(val[1].values, dtype=dtype[1] if dtype else None)
+            )
+        if test:
+            self.test =  (
+                tf.convert_to_tensor(test[0].values, dtype=dtype[0] if dtype else None),
+                tf.convert_to_tensor(test[1].values, dtype=dtype[1] if dtype else None)
+            )
