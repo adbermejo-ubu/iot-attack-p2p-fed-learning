@@ -1,17 +1,22 @@
-import numpy as np
 import keras
+import numpy as np
 
-class P2PModel(keras.Model):
+
+class P2PModel:
     """Model wrapper for P2P federated learning."""
+
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        self.__model = keras.Model(*args, **kwargs)
         self.__shapes = [w.shape for w in self.get_weights()]
         self.__sizes = [w.size for w in self.get_weights()]
         self.__params = sum(self.__sizes)
 
     def flat(self):
         """Reshape the model weights into a one-dimensional array."""
-        return np.concatenate([np.array(w.numpy(), dtype=np.float32).ravel() for w in self.weights], dtype=np.float32).astype(np.float32)
+        return np.concatenate(
+            [np.array(w.numpy(), dtype=np.float32).ravel() for w in self.__model.weights],
+            dtype=np.float32,
+        ).astype(np.float32)
 
     def reconstruct(self, flat_model: list):
         """Reshape one-dimensional array into the model architecture."""
@@ -19,7 +24,7 @@ class P2PModel(keras.Model):
         weights = []
         pointer = 0
 
-        if len(flat_model) !=  self.__params:
+        if len(flat_model) != self.__params:
             raise ValueError("The flat model does not have the same shape as the model")
 
         for shape, size in zip(self.__shapes, self.__sizes):
@@ -73,3 +78,30 @@ class P2PModel(keras.Model):
             if current < r_end:
                 segments.append((current, r_end))
         return segments
+
+    def fit(self, *args, **kwargs):
+        return self.__model.fit(*args, **kwargs)
+
+    def evaluate(self, *args, **kwargs):
+        return self.__model.evaluate(*args, **kwargs)
+
+    def predict(self, *args, **kwargs):
+        return self.__model.predict(*args, **kwargs)
+
+    def get_weights(self):
+        return self.__model.get_weights()
+
+    def set_weights(self, weights):
+        self.__model.set_weights(weights)
+
+    def compile(self, *args, **kwargs):
+        self.__model.compile(*args, **kwargs)
+
+    def save(self, *args, **kwargs):
+        self.__model.save(*args, **kwargs)
+
+    def load(self, *args, **kwargs):
+        self.__model.load(*args, **kwargs)
+
+    def summary(self):
+        return self.__model.summary()
