@@ -14,7 +14,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 import constants
-from src.aggregation import fed_avg
+from src.aggregation import fed_avg, fed_avg_sim
 from src.datasets import Datasets
 from src.model import P2PModel
 from src.network import NetworkHandler
@@ -219,7 +219,7 @@ class Peer:
                             "end": end,
                         },
                     )
-            return replicas * constants.S  # Exected segments
+            return replicas * constants.S  # Expected segments
 
         # Retry requests
         def retry_request(min_segments: int):
@@ -275,6 +275,7 @@ class Peer:
 
             with self.model_lock:
                 self.model.reconstruct(weights)
+                self.cached_weights = weights
 
         expected_segments = request_models()
         retry_request(expected_segments)
@@ -316,7 +317,7 @@ class Peer:
 
         with self.model_lock:
             self.model.save(f"output/{str(self.id).replace(':', '_')}.keras")
-            
+
     # Control
     def start(self):
         self.stop_event.clear()
@@ -330,6 +331,8 @@ class Peer:
         self.training_thread.start()
         # End the training
         self.training_done.wait()
+        print("\033[37m[INFO]\033[0m           Training done")
+        time.sleep(TIMEOUT * 4)
         self.stop()
 
     def stop(self):
